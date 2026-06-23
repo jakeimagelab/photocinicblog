@@ -211,36 +211,50 @@ SEO 제목 (50자 이내)
 ===CTA===
 행동 유도 문구 2개 (각 줄에 하나씩)`;
 
-    let claudeRes;
-    try {
-      claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 4000,
-          system: SYSTEM_PROMPT,
-          messages: [{ role: 'user', content: prompt }],
-        }),
-        signal: AbortSignal.timeout(20000),
-      });
-    } catch (claudeErr) {
-      throw new Error(`Claude API 호출 실패: ${claudeErr.message}`);
+    const claudeBody = JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 4000,
+      system: SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: prompt }],
+    });
+    const claudeHeaders = {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    };
+
+    let claudeRes, claudeData;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: claudeHeaders,
+          body: claudeBody,
+          signal: AbortSignal.timeout(20000),
+        });
+      } catch (claudeErr) {
+        throw new Error(`AI 서버 연결 실패: ${claudeErr.message}`);
+      }
+
+      claudeData = await claudeRes.json();
+
+      if (claudeRes.status === 529 || claudeData.error?.type === 'overloaded_error') {
+        if (attempt < 2) {
+          await new Promise(r => setTimeout(r, 3000));
+          continue;
+        }
+        throw new Error('AI 서버가 잠시 바빠요. 몇 초 후 다시 시도해주세요.');
+      }
+      break;
     }
 
-    const claudeData = await claudeRes.json();
-
     if (!claudeRes.ok || claudeData.error) {
-      const errMsg = claudeData.error?.message || `Claude API 오류 (HTTP ${claudeRes.status})`;
+      const errMsg = claudeData.error?.message || `AI 오류 (HTTP ${claudeRes.status})`;
       throw new Error(errMsg);
     }
 
     const content = claudeData.content?.[0]?.text || '';
-    if (!content) throw new Error('Claude에서 응답을 받지 못했습니다.');
+    if (!content) throw new Error('AI에서 응답을 받지 못했습니다.');
 
     return {
       statusCode: 200,
